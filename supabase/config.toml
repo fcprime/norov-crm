@@ -1,0 +1,5 @@
+[functions.facebook-lead]
+verify_jwt = false
+
+[functions.ai-first-message]
+verify_jwt = false
