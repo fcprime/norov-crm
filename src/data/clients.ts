@@ -15,6 +15,9 @@ export type Client = {
   nextPaymentDate: string;
   source?: string;
   contact?: string;
+  whatsapp?: string;
+  instagram?: string;
+  telegram?: string;
   notes?: string;
   archivedAt?: string;
   archiveReason?: string;
@@ -46,5 +49,8 @@ export const emptyClient: Client = {
   nextPaymentDate: new Date().toISOString().slice(0, 10),
   source: '',
   contact: '',
+  whatsapp: '',
+  instagram: '',
+  telegram: '',
   notes: '',
 };
