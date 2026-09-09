@@ -2,9 +2,10 @@ node_modules/
 dist/
 
 .env
+.env.local
+.env.functions
 .env.*
 !.env.example
 
-.supabase/
 .DS_Store
-*.tsbuildinfo
+supabase/.temp/
