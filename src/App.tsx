@@ -8,7 +8,7 @@ import {
 import { statusLabels, type Lead, type LeadStatus } from './data/leads';
 import { emptyClient, type Client, type ClientStatus, type Payment } from './data/clients';
 import { bulkCreateLeads, createLead, deleteLead, loadLeads, repairImportedLeads, updateLead } from './lib/leadsRepository';
-import { loadClients, loadPayments, recordPayment, saveClient } from './lib/clientsRepository';
+import { deleteClient, loadClients, loadPayments, recordPayment, saveClient } from './lib/clientsRepository';
 import { exportLeadsCsv, parseLeadsCsv } from './lib/csv';
 import { isSupabaseConfigured, supabase } from './lib/supabase';
 
@@ -57,6 +57,7 @@ function App() {
   const [integrationOpen, setIntegrationOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [archivingClient, setArchivingClient] = useState<Client|null>(null);
+  const [deletingClient, setDeletingClient] = useState<Client|null>(null);
   const [clientFilter, setClientFilter] = useState<'active'|'paused'|'archived'|'all'>('active');
   const importInput = useRef<HTMLInputElement>(null);
 
@@ -134,6 +135,18 @@ function App() {
     }catch(e:any){setError(e.message||'Не вдалося архівувати клієнта');}
     finally{setSyncing(false);}
   }
+  async function permanentlyDeleteClient(client:Client){
+    setSyncing(true);setError('');
+    try{
+      await deleteClient(client.id,clients,payments);
+      setClients(prev=>prev.filter(c=>c.id!==client.id));
+      setPayments(prev=>prev.filter(p=>p.clientId!==client.id));
+      if(editingClient?.id===client.id)setEditingClient(null);
+      setDeletingClient(null);
+      setNotice(`${client.name}: клієнта та історію оплат видалено назавжди.`);
+    }catch(e:any){setError(e.message||'Не вдалося видалити клієнта');}
+    finally{setSyncing(false);}
+  }
   async function confirmPayment(client:Client, amount:number, paidAt:string, note:string){
     setSyncing(true);setError('');try{const result=await recordPayment(client,{clientId:client.id,dueDate:client.nextPaymentDate,paidAt,amount,currency:client.currency,note},clients,payments);setPayments(prev=>[result.payment,...prev]);setClients(prev=>prev.map(c=>c.id===client.id?result.client:c));setPayingClient(null);setNotice(`${client.name}: оплату ${money(amount,client.currency)} зараховано. Наступна дата — ${formatDate(result.client.nextPaymentDate)}.`);}catch(e:any){setError(e.message||'Не вдалося зберегти оплату');}finally{setSyncing(false);}
   }
@@ -185,7 +198,7 @@ function App() {
             <div className="heading-row"><div><p className="eyebrow">Продажі / Ліди</p><h1>Ліди</h1><p>Контролюйте заявки, комунікацію та наступні кроки.</p></div></div>
             <div className="stats"><Stat title="Нові ліди" value={String(filteredLeads.filter(l=>l.status==='new').length)} meta="потребують першого контакту" icon={Users}/><Stat title="Потрібен контакт" value={String(filteredLeads.filter(l=>['call','message','decision','later'].includes(l.status)).length)} meta="дзвінки та follow-up" icon={Bell}/><Stat title="Клієнти в роботі" value={String(filteredLeads.filter(l=>['paid','active'].includes(l.status)).length)} meta="оплачені та активні" icon={Target}/><Stat title="Сума угод" value={`${filteredLeads.filter(l=>['paid','active','completed'].includes(l.status)).reduce((s,l)=>s+l.value,0).toLocaleString('uk-UA')} zł`} meta="у воронці продажів" icon={CircleDollarSign}/></div>
             <div className="toolbar"><div className="toolbar-left"><button className="primary add-lead-main" onClick={()=>setEditingLead({...emptyLead})}><Plus size={18}/>Додати лід</button><input ref={importInput} hidden type="file" accept=".csv,text/csv" onChange={e=>void importCsv(e.target.files?.[0])}/><button className="secondary compact" onClick={()=>importInput.current?.click()}><Upload size={17}/>Імпорт CSV</button><button className="secondary compact" onClick={exportCsv}><Download size={17}/>Експорт</button><button className="secondary compact" onClick={()=>void repairImport()}>Виправити імпорт</button><button className="secondary compact" onClick={()=>void loadLeads().then(setLeads)}><RefreshCw size={17}/>Оновити</button><div className="view-switch"><button onClick={()=>setView('kanban')} className={view==='kanban'?'active':''}>Воронка</button><button onClick={()=>setView('table')} className={view==='table'?'active':''}>Таблиця</button></div></div></div>
-            {view==='kanban'?<Kanban leads={filteredLeads} clients={clients} onEdit={setEditingLead} onMove={moveLead} onAdd={status=>setEditingLead({...emptyLead,status})}/>:<LeadTable leads={filteredLeads} clients={clients} onEdit={setEditingLead}/>} </>:page==='clients'?<ClientsPage clients={filteredClients} allClients={clients} payments={payments} filter={clientFilter} setFilter={setClientFilter} onAdd={()=>setEditingClient({...emptyClient})} onEdit={setEditingClient} onPay={setPayingClient} onStatus={setClientStatus}/>:<PaymentsPage rows={paymentRows} clients={clients}/>
+            {view==='kanban'?<Kanban leads={filteredLeads} clients={clients} onEdit={setEditingLead} onMove={moveLead} onAdd={status=>setEditingLead({...emptyLead,status})}/>:<LeadTable leads={filteredLeads} clients={clients} onEdit={setEditingLead}/>} </>:page==='clients'?<ClientsPage clients={filteredClients} allClients={clients} payments={payments} filter={clientFilter} setFilter={setClientFilter} onAdd={()=>setEditingClient({...emptyClient})} onEdit={setEditingClient} onPay={setPayingClient} onStatus={setClientStatus} onDelete={setDeletingClient}/>:<PaymentsPage rows={paymentRows} clients={clients}/>
         }
       </section>
     </main>
@@ -193,6 +206,7 @@ function App() {
     {editingClient&&<ClientModal client={editingClient} payments={payments.filter(p=>p.clientId===editingClient.id)} onClose={()=>setEditingClient(null)} onSave={saveClientItem}/>} 
     {payingClient&&<PaymentModal client={payingClient} onClose={()=>setPayingClient(null)} onConfirm={confirmPayment}/>} 
     {archivingClient&&<ArchiveClientModal client={archivingClient} onClose={()=>setArchivingClient(null)} onConfirm={archiveClient}/>} 
+    {deletingClient&&<DeleteClientModal client={deletingClient} paymentsCount={payments.filter(p=>p.clientId===deletingClient.id).length} onClose={()=>setDeletingClient(null)} onConfirm={permanentlyDeleteClient}/>} 
     {pendingLost&&<LostReasonModal onClose={()=>setPendingLost(null)} onSelect={closeAsLost}/>} 
     {integrationOpen&&<IntegrationModal onClose={()=>setIntegrationOpen(false)}/>} 
   </div>;
@@ -211,11 +225,11 @@ function Dashboard({clients,payments,overdue,dueToday,due7,onPay,onOpenClients}:
   <section className="panel"><div className="panel-head"><div><h2>Останні оплати</h2><p>Останні зараховані платежі</p></div></div><div className="recent-payments">{payments.slice(0,7).map(p=>{const c=clients.find(x=>x.id===p.clientId);return <div key={p.id}><span><strong>{c?.name||'Клієнт'}</strong><small>{formatDate(p.paidAt)}</small></span><b>{money(p.amount,p.currency)}</b></div>})}{!payments.length&&<div className="empty-mini">Ще немає зарахованих оплат.</div>}</div></section></div></>;
 }
 
-function ClientsPage({clients,allClients,payments,filter,setFilter,onAdd,onEdit,onPay,onStatus}:{clients:Client[];allClients:Client[];payments:Payment[];filter:any;setFilter:(v:any)=>void;onAdd:()=>void;onEdit:(c:Client)=>void;onPay:(c:Client)=>void;onStatus:(c:Client,s:ClientStatus)=>void}){
+function ClientsPage({clients,allClients,payments,filter,setFilter,onAdd,onEdit,onPay,onStatus,onDelete}:{clients:Client[];allClients:Client[];payments:Payment[];filter:any;setFilter:(v:any)=>void;onAdd:()=>void;onEdit:(c:Client)=>void;onPay:(c:Client)=>void;onStatus:(c:Client,s:ClientStatus)=>void;onDelete:(c:Client)=>void}){
   const total=(c:Client)=>payments.filter(p=>p.clientId===c.id).reduce((s,p)=>s+p.amount,0); const count=(c:Client)=>payments.filter(p=>p.clientId===c.id).length;
   return <><div className="heading-row"><div><p className="eyebrow">Робота / Клієнти</p><h1>Клієнти</h1><p>Один клієнт — одна картка. Продовження зберігаються як оплати.</p></div><button className="primary" onClick={onAdd}><Plus size={18}/>Додати клієнта</button></div>
   <div className="client-tabs">{(['active','paused','archived','all'] as const).map(f=><button key={f} className={filter===f?'active':''} onClick={()=>setFilter(f)}>{f==='active'?'Активні':f==='paused'?'Пауза':f==='archived'?'Архів':'Усі'} <em>{f==='all'?allClients.length:allClients.filter(c=>c.status===f).length}</em></button>)}</div>
-  <div className="client-table-wrap"><table className="client-table"><thead><tr><th>Клієнт</th><th>Наступна оплата</th><th>Сума</th><th>З нами</th><th>Оплат</th><th>LTV</th><th>Статус</th><th></th></tr></thead><tbody>{clients.map(c=>{const days=Math.max(1,Math.floor((Date.now()-new Date(`${c.startDate}T12:00:00`).getTime())/86400000));return <tr key={c.id}><td onClick={()=>onEdit(c)} className="clickable"><strong>{c.name}</strong><span>{c.service}</span></td><td>{paymentBadge(c)}</td><td><strong>{money(c.amount,c.currency)}</strong><span>{c.billingType==='monthly'?'щомісяця':`кожні ${c.intervalDays} дн.`}</span></td><td>{days<31?`${days} дн.`:`${(days/30.44).toFixed(1)} міс.`}</td><td>{count(c)}</td><td><strong>{money(total(c),c.currency)}</strong></td><td><div className="client-status-cell"><span><span className={`status-dot ${c.status}`}/>{clientStatusLabel[c.status]}</span>{c.status==='archived'&&<small>{formatDate(c.archivedAt||'')} · {c.archiveReason||'Без причини'}</small>}</div></td><td><div className="row-actions">{c.status==='active'&&<button title="Оплачено" onClick={()=>onPay(c)}><CheckCircle2 size={17}/></button>}{c.status==='active'&&<button title="Пауза" onClick={()=>void onStatus(c,'paused')}><Pause size={17}/></button>}{c.status==='paused'&&<button title="Повернути" onClick={()=>void onStatus(c,'active')}><RefreshCw size={17}/></button>}{c.status!=='archived'&&<button title="Архів" onClick={()=>void onStatus(c,'archived')}><Archive size={17}/></button>}{c.status==='archived'&&<button title="Повернути в активні" onClick={()=>void onStatus(c,'active')}><RefreshCw size={17}/></button>}</div></td></tr>})}{!clients.length&&<tr><td colSpan={8}><div className="empty-table">Тут поки немає клієнтів.</div></td></tr>}</tbody></table></div></>;
+  <div className="client-table-wrap"><table className="client-table"><thead><tr><th>Клієнт</th><th>Наступна оплата</th><th>Сума</th><th>З нами</th><th>Оплат</th><th>LTV</th><th>Статус</th><th></th></tr></thead><tbody>{clients.map(c=>{const days=Math.max(1,Math.floor((Date.now()-new Date(`${c.startDate}T12:00:00`).getTime())/86400000));return <tr key={c.id}><td onClick={()=>onEdit(c)} className="clickable"><strong>{c.name}</strong><span>{c.service}</span></td><td>{paymentBadge(c)}</td><td><strong>{money(c.amount,c.currency)}</strong><span>{c.billingType==='monthly'?'щомісяця':`кожні ${c.intervalDays} дн.`}</span></td><td>{days<31?`${days} дн.`:`${(days/30.44).toFixed(1)} міс.`}</td><td>{count(c)}</td><td><strong>{money(total(c),c.currency)}</strong></td><td><div className="client-status-cell"><span><span className={`status-dot ${c.status}`}/>{clientStatusLabel[c.status]}</span>{c.status==='archived'&&<small>{formatDate(c.archivedAt||'')} · {c.archiveReason||'Без причини'}</small>}</div></td><td><div className="row-actions">{c.status==='active'&&<button title="Оплачено" onClick={()=>onPay(c)}><CheckCircle2 size={17}/></button>}{c.status==='active'&&<button title="Пауза" onClick={()=>void onStatus(c,'paused')}><Pause size={17}/></button>}{c.status==='paused'&&<button title="Повернути" onClick={()=>void onStatus(c,'active')}><RefreshCw size={17}/></button>}{c.status!=='archived'&&<button title="Архів" onClick={()=>void onStatus(c,'archived')}><Archive size={17}/></button>}{c.status==='archived'&&<button title="Повернути в активні" onClick={()=>void onStatus(c,'active')}><RefreshCw size={17}/></button>}{c.status==='archived'&&<button className="delete-client-action" title="Видалити назавжди" onClick={()=>onDelete(c)}><Trash2 size={17}/></button>}</div></td></tr>})}{!clients.length&&<tr><td colSpan={8}><div className="empty-table">Тут поки немає клієнтів.</div></td></tr>}</tbody></table></div></>;
 }
 
 function PaymentsPage({rows,clients}:{rows:(Payment&{client?:Client})[];clients:Client[]}){
@@ -229,6 +243,12 @@ function ClientModal({client,payments,onClose,onSave}:{client:Client;payments:Pa
 function ReminderCenter({clients,onClose,onOpenClient,onPay,onEnableBrowser}:{clients:Client[];onClose:()=>void;onOpenClient:(c:Client)=>void;onPay:(c:Client)=>void;onEnableBrowser:()=>void}){
   const permission=typeof Notification==='undefined'?'unsupported':Notification.permission;
   return <div className="reminder-popover"><div className="reminder-head"><div><strong>Нагадування</strong><span>{clients.length?`${clients.length} оплат потребують уваги`:'Все спокійно'}</span></div><button onClick={onClose}><X size={17}/></button></div>{clients.length?<div className="reminder-list">{clients.map(c=>{const d=daysDiff(c.nextPaymentDate);return <div className={`reminder-item ${d<0?'danger':d===0?'today':'soon'}`} key={c.id}><div className="reminder-icon"><Bell size={16}/></div><div className="reminder-copy"><strong>{c.name}</strong><span>{d<0?`Прострочено на ${Math.abs(d)} дн.`:d===0?'Оплата сьогодні':`Оплата через ${d} дн.`} · {money(c.amount,c.currency)}</span><small>{formatDate(c.nextPaymentDate)}</small></div><div className="reminder-actions"><button title="Відкрити клієнта" onClick={()=>onOpenClient(c)}>Картка</button><button className="pay" onClick={()=>onPay(c)}>Оплачено</button></div></div>})}</div>:<div className="reminder-empty"><CheckCircle2 size={28}/><strong>Немає нагадувань</strong><span>Найближчі оплати ще не настали.</span></div>}<div className="reminder-footer">{permission==='granted'?<span><CheckCircle2 size={14}/>Сповіщення браузера увімкнено</span>:permission==='unsupported'?<span>Браузер не підтримує сповіщення</span>:<button onClick={onEnableBrowser}><Bell size={15}/>Увімкнути сповіщення браузера</button>}</div></div>
+}
+
+function DeleteClientModal({client,paymentsCount,onClose,onConfirm}:{client:Client;paymentsCount:number;onClose:()=>void;onConfirm:(c:Client)=>void}){
+  const [confirmation,setConfirmation]=useState('');
+  const canDelete=confirmation.trim().toLowerCase()===client.name.trim().toLowerCase();
+  return <div className="modal-backdrop"><div className="modal delete-client-modal"><div className="modal-head"><div><span>Видалення клієнта</span><h2>{client.name}</h2></div><button onClick={onClose}><X size={20}/></button></div><div className="delete-warning"><Trash2 size={20}/><div><strong>Це незворотна дія</strong><span>Картка клієнта, {paymentsCount?`${paymentsCount} ${paymentsCount===1?'оплата':'оплат'}`:'історія оплат'} та пов’язані нагадування будуть видалені назавжди.</span></div></div><div className="delete-confirm-copy">Щоб підтвердити, введіть назву клієнта: <strong>{client.name}</strong></div><input className="delete-confirm-input" value={confirmation} onChange={e=>setConfirmation(e.target.value)} placeholder={client.name} autoFocus/><div className="modal-actions"><button className="secondary" onClick={onClose}>Скасувати</button><button className="danger-button" disabled={!canDelete} onClick={()=>onConfirm(client)}><Trash2 size={17}/>Видалити назавжди</button></div></div></div>
 }
 
 function ArchiveClientModal({client,onClose,onConfirm}:{client:Client;onClose:()=>void;onConfirm:(c:Client,date:string,reason:string)=>void}){

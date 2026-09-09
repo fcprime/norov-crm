@@ -116,6 +116,25 @@ export async function saveClient(client: Client, current: Client[]): Promise<Cli
   return toClient(data);
 }
 
+export async function deleteClient(clientId: string, clients: Client[], payments: Payment[]): Promise<void> {
+  if (!isSupabaseConfigured || !supabase) {
+    saveLocal(CLIENTS_KEY, clients.filter(c => c.id !== clientId));
+    saveLocal(PAYMENTS_KEY, payments.filter(p => p.clientId !== clientId));
+    return;
+  }
+  const { data: auth } = await supabase.auth.getUser();
+  if (!auth.user) throw new Error('Потрібна авторизація');
+  const { error } = await supabase.from('clients').delete().eq('id', clientId);
+  if (error) {
+    if (dbUnavailable(error)) {
+      saveLocal(CLIENTS_KEY, clients.filter(c => c.id !== clientId));
+      saveLocal(PAYMENTS_KEY, payments.filter(p => p.clientId !== clientId));
+      return;
+    }
+    throw error;
+  }
+}
+
 export async function recordPayment(client: Client, payment: Omit<Payment, 'id'>, clients: Client[], payments: Payment[]) {
   const createdPayment: Payment = { ...payment, id: crypto.randomUUID(), createdAt: new Date().toISOString() };
   const nextDate = advanceDate(client.nextPaymentDate, client.billingType, client.intervalDays);
