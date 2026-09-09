@@ -3,3 +3,6 @@ verify_jwt = false
 
 [functions.ai-first-message]
 verify_jwt = false
+
+[functions.payment-reminders]
+verify_jwt = false
