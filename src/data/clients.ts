@@ -18,6 +18,7 @@ export type Client = {
   whatsapp?: string;
   instagram?: string;
   telegram?: string;
+  reminderDaysBefore: number;
   notes?: string;
   archivedAt?: string;
   archiveReason?: string;
@@ -52,5 +53,6 @@ export const emptyClient: Client = {
   whatsapp: '',
   instagram: '',
   telegram: '',
+  reminderDaysBefore: 3,
   notes: '',
 };
