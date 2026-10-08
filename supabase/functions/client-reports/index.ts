@@ -1,3 +1,4 @@
+import { validateTarget } from './sheet-target.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.111.0';
 import { localDay, shift, validDay, period, reportText, ZONE } from './core.ts';
 import { env, crypt, meta, sheetMeta, writeSheet, telegram } from './providers.ts';
@@ -20,15 +21,19 @@ async function run(db:any,client:any,s:any,action:string,date:string,kind='daily
  const creds=await credentials(db);
  const result=await meta(s.ad_account_id,p.since,p.until,creds.meta);
  const text=reportText(client.name,p.since,p.until,result.currency,result.rows,action==='test');
- if(action==='preview')return {text,currency:result.currency,timezone:result.timezone};
+ if(action==='preview') {
+  const planned=s.sheet_target ? await writeSheet(s.spreadsheet_id,result.rows,result.currency,creds.google,s.sheet_target,s.start_date,true) : undefined;
+  return {text,currency:result.currency,timezone:result.timezone,message:planned?`Попередній перегляд: аркуш «${planned.sheet}», буде записано днів ${planned.written}, пропущено ${planned.skipped}. Запис і надсилання не виконувались.`:'Попередній перегляд — без запису й надсилання'};
+ }
  // Recheck status immediately before external writes.
  const fresh=await checked(db.from('clients').select('status').eq('id',client.id).single());
  if(fresh.status!=='active')throw new Error('Клієнт уже не активний');
- await writeSheet(s.spreadsheet_id,result.rows,result.currency,creds.google);
+ const sheetResult=await writeSheet(s.spreadsheet_id,result.rows,result.currency,creds.google,s.sheet_target,s.start_date);
+ const sheetMessage=sheetResult ? `Аркуш «${sheetResult.sheet}»: записано днів ${sheetResult.written}, пропущено ${sheetResult.skipped} (до початку запису або вже заповнені).` : 'Таблицю оновлено';
  if(action==='test' || action==='scheduled') {
    const key=`${kind}:${p.since}:${p.until}${action==='test'?':test':''}`;
    const claim=await db.from('client_report_delivery').insert({client_id:client.id,delivery_key:key,state:'sending'});
-   if(claim.error?.code==='23505')return {text,message:'Таблицю оновлено. Повторне надсилання цього звіту заблоковане.'};
+   if(claim.error?.code==='23505')return {text,message:sheetMessage+' Повторне надсилання цього звіту заблоковане.'};
    if(claim.error)throw new Error('Не вдалося зарезервувати надсилання');
    try {
     const latest=await checked(db.from('clients').select('status').eq('id',client.id).single());
@@ -42,7 +47,7 @@ async function run(db:any,client:any,s:any,action:string,date:string,kind='daily
    }
  }
  await checked(db.from('client_report_settings').update({last_success:new Date().toISOString(),last_error:null}).eq('client_id',client.id));
- return {text,message:action==='sync'?'Таблицю оновлено':'Таблицю оновлено, звіт надіслано'};
+ return {text,message:sheetMessage+(action==='sync'?'':' Звіт надіслано в Telegram.')};
  }catch(e){await db.from('client_report_settings').update({last_error:safe(e)}).eq('client_id',client.id);throw e;}
  finally {await db.from('client_report_settings').update({locked_until:null}).eq('client_id',client.id);}
 }
@@ -101,8 +106,16 @@ Deno.serve(async(req:Request)=>{
   const bot=String(x.bot_token || '').trim();if(bot && !/^\d+:[A-Za-z0-9_-]{20,}$/.test(bot))throw new Error('Некоректний токен бота');
   const bot_cipher=bot ? await crypt(bot) : s?.bot_cipher || null;
   if(x.enabled && (!chat || !bot_cipher))throw new Error('Для автоматичних звітів налаштуйте Telegram');
-  const value={client_id:client.id,enabled:!!x.enabled,daily:!!x.daily,weekly:!!x.weekly,ad_account_id:account,spreadsheet_id:spreadsheet,chat_id:chat,bot_cipher,start_date:x.start_date};
+  const sheet_target=validateTarget(x.sheet_target);
+  if(sheet_target && x.start_date>sheet_target.until)throw new Error('Початок запису пізніше кінця періоду аркуша');
+  const value={sheet_target,client_id:client.id,enabled:!!x.enabled,daily:!!x.daily,weekly:!!x.weekly,ad_account_id:account,spreadsheet_id:spreadsheet,chat_id:chat,bot_cipher,start_date:x.start_date};
   await checked(admin.from('client_report_settings').upsert(value));return reply({settings:publicSettings(value),message:'Налаштування звітів збережено'});
+ }
+ if(body.action==='tabs') {
+  const input=String(body.settings?.spreadsheet_id||s?.spreadsheet_id||'').trim();const id=input.match(/\/spreadsheets\/d\/([\w-]+)/)?.[1]||input;
+  if(!/^[\w-]{20,150}$/.test(id))throw new Error('Спочатку вкажіть посилання на Google Таблицю');
+  const creds=await credentials(admin);const tabs=await sheetMeta(id,creds.google);
+  return reply({tabs:tabs.sheets.map((t:any)=>({id:t.properties.sheetId,title:t.properties.title,rows:t.properties.gridProperties.rowCount})),message:'Аркуші завантажені'});
  }
  if(!s)throw new Error('Спочатку збережіть налаштування звітів');
  if(body.action==='check') {

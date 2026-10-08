@@ -1,3 +1,4 @@
+import { validateTarget, planTemplate, columnIndex } from './sheet-target.ts';
 import { aggregate, type Metric } from './core.ts';
 const env = (key:string) => { const v=Deno.env.get(key); if(!v) throw new Error(`Не налаштовано ${key}`); return v; };
 export { env };
@@ -57,10 +58,32 @@ export async function sheetMeta(id:string, credentials?:string) {
 }
 export const SHEET='Meta — щодня';
 const headers=['Дата','Кампанії','Ліди Meta','CPL','CPM','Покази','CPC','Кліки на посилання','CTR','Витрати','Переписки з реклами','Валюта'];
-export async function writeSheet(id:string,rows:Metric[],currency:string, credentials?:string) {
+export async function writeSheet(id:string,rows:Metric[],currency:string, credentials?:string, target?:any, writeFrom="0000-00-00", dryRun=false) {
  const token=await googleAuth(credentials);const base=`https://sheets.googleapis.com/v4/spreadsheets/${id}`;
  const call=(path:string,body?:any)=>json(base+path,{method:body?'POST':'GET',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})},'Google Sheets');
- let details=await sheetMeta(id,credentials); let tab=details.sheets.find((s:any)=>s.properties.title===SHEET)?.properties;
+ let details=await sheetMeta(id,credentials);
+ const custom=validateTarget(target);
+ if(custom) {
+  const selected=details.sheets.find((s:any)=>s.properties.sheetId===custom.sheet_id)?.properties;
+  if(!selected)throw new Error('Обраний аркуш видалено або недоступний. Оберіть його заново.');
+  if(custom.last_row>selected.gridProperties.rowCount)throw new Error('Останній рядок перевищує розмір аркуша');
+  const maxColumn=Object.values(custom.columns).filter(Boolean).sort((a,b)=>columnIndex(b)-columnIndex(a))[0];
+  if(columnIndex(maxColumn)>=selected.gridProperties.columnCount)throw new Error('Обрана колонка поза межами аркуша');
+  const title="'"+selected.title.replace(/'/g,"''")+"'";
+  const range=`${title}!A${custom.first_row}:${maxColumn}${custom.last_row}`;
+  const dates=await call('/values/'+encodeURIComponent(range)+'?valueRenderOption=UNFORMATTED_VALUE&dateTimeRenderOption=SERIAL_NUMBER');
+  const formulas=await call('/values/'+encodeURIComponent(range)+'?valueRenderOption=FORMULA');
+  const plan=planTemplate(custom,rows,dates.values||[],formulas.values||[],writeFrom);
+  if(plan.writes.length && !dryRun) {
+   const data=plan.writes.map(w=>({range:`${title}!${w.column}${w.row}`,values:[[w.key==='currency'?currency:w.value]]}));
+   const formats=plan.writes.filter(w=>['cpl','cpm','cpc','spend','ctr'].includes(w.key)).map(w=>({repeatCell:{range:{sheetId:custom.sheet_id,startRowIndex:w.row-1,endRowIndex:w.row,startColumnIndex:columnIndex(w.column),endColumnIndex:columnIndex(w.column)+1},cell:{userEnteredFormat:{numberFormat:w.key==='ctr'?{type:'PERCENT',pattern:'0.00%'}:{type:'NUMBER',pattern:`#,##0.00 "${currency}"`}}},fields:'userEnteredFormat.numberFormat'}}));
+   // Only number formats for the cells about to be written; colors, sizes and formulas remain intact.
+   if(formats.length)await call(':batchUpdate',{requests:formats});
+   await call('/values:batchUpdate',{valueInputOption:'RAW',data});
+  }
+  return {written:plan.written,skipped:plan.skipped,sheet:selected.title};
+ }
+ let tab=details.sheets.find((s:any)=>s.properties.title===SHEET)?.properties;
  if(!tab) {const created=await call(':batchUpdate',{requests:[{addSheet:{properties:{title:SHEET,gridProperties:{rowCount:2000,columnCount:12,frozenRowCount:1}}}}]});tab=created.replies[0].addSheet.properties;}
  const range=(r:string)=>`'${SHEET}'!${r}`;
  const existing=await call('/values/'+encodeURIComponent(range('A:L'))+'?valueRenderOption=UNFORMATTED_VALUE');
