@@ -6,3 +6,7 @@ verify_jwt = false
 
 [functions.payment-reminders]
 verify_jwt = false
+
+[functions.client-reports]
+# The handler validates user JWTs via auth.getUser; cron uses a separate secret.
+verify_jwt = false

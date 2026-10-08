@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { LockKeyhole, LoaderCircle } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
-import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import { isSupabaseConfigured, supabase, validatedSession } from '../lib/supabase';
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -13,15 +13,20 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setLoading(false);
-    });
+    let live=true; let checking=false; let lastCheck=0;
+    const check=async()=>{
+      if(checking)return; checking=true;
+      try {const next=await validatedSession();if(live){setSession(next);setError('');}}
+      catch(e:any){if(live)setError(e.status===400 || e.status===401 ? 'Сесію завершено. Увійдіть повторно.' : 'Не вдалося перевірити сесію. Перевірте інтернет і повторіть спробу.');}
+      finally{checking=false;lastCheck=Date.now();if(live)setLoading(false);}
+    };
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setLoading(false);
+      if(live){setSession(nextSession);setLoading(false);}
     });
-    return () => data.subscription.unsubscribe();
+    void check();
+    const wake=()=>{if(document.visibilityState==='visible' && Date.now()-lastCheck>60000)void check();};
+    window.addEventListener('focus',wake);window.addEventListener('online',wake);document.addEventListener('visibilitychange',wake);
+    return () => {live=false;data.subscription.unsubscribe();window.removeEventListener('focus',wake);window.removeEventListener('online',wake);document.removeEventListener('visibilitychange',wake);};
   }, []);
 
   if (!isSupabaseConfigured) return <>{children}</>;

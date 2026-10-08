@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { aggregate, totals, reportText, period, localDay, validDay } from '../supabase/functions/client-reports/core.ts';
+const rows=[{date_start:'2026-10-07',spend:'10',impressions:'1000',inline_link_clicks:'10',actions:[{action_type:'lead',value:'3'},{action_type:'onsite_conversion.lead_grouped',value:'3'},{action_type:'onsite_conversion.messaging_conversation_started_7d',value:'1'}],conversions:[{action_type:'lead',value:'3'}]},{date_start:'2026-10-07',spend:'5',impressions:'500',inline_link_clicks:'5',actions:[{action_type:'lead',value:'2'}]}];
+const result=aggregate(rows,'2026-10-07','2026-10-08');
+assert.equal(result.length,2);assert.equal(result[0].leads,5);assert.equal(result[0].messages,1);assert.equal(result[1].leads,0);assert.equal(totals(result).spend,15);
+assert.match(reportText('Client','2026-10-07','2026-10-07','USD',result),/USD|\$/);assert.match(reportText('Client','2026-10-07','2026-10-07','PLN',result),/PLN|zł/);
+assert.deepEqual(period('weekly','2026-10-12'),{since:'2026-10-05',until:'2026-10-11'});
+assert.deepEqual(period('weekly','2027-01-04'),{since:'2026-12-28',until:'2027-01-03'});
+assert.equal(localDay(new Date('2026-10-07T22:30:00Z')),'2026-10-08');assert.equal(localDay(new Date('2026-10-25T23:30:00Z')),'2026-10-26');
+assert.equal(validDay('2026-02-30'),false);assert.equal(validDay('2026-10-07'),true);
+assert.throws(()=>aggregate([{...rows[0],spend:'bad'}],'2026-10-07','2026-10-07'));
+assert.throws(()=>aggregate([{...rows[0],date_start:'2026-10-06'}],'2026-10-07','2026-10-07'));
+console.log('PASS: duplicate metrics, empty day, currencies, weekly boundary, Warsaw DST, invalid data');
