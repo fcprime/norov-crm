@@ -1,4 +1,5 @@
 import { validateTarget } from './sheet-target.ts';
+import { validateTemplates } from './report-template.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.111.0';
 import { localDay, shift, validDay, period, reportText, ZONE } from './core.ts';
 import { env, crypt, meta, sheetMeta, writeSheet, telegram } from './providers.ts';
@@ -20,7 +21,8 @@ async function run(db:any,client:any,s:any,action:string,date:string,kind='daily
  try {
  const creds=await credentials(db);
  const result=await meta(s.ad_account_id,p.since,p.until,creds.meta);
- const text=reportText(client.name,p.since,p.until,result.currency,result.rows,action==='test');
+ const templates=validateTemplates(s.telegram_templates);
+ const text=reportText(client.name,p.since,p.until,result.currency,result.rows,action==='test',templates?.[kind==='weekly'?'weekly':'daily']);
  if(action==='preview') {
   const planned=s.sheet_target ? await writeSheet(s.spreadsheet_id,result.rows,result.currency,creds.google,s.sheet_target,s.start_date,true) : undefined;
   return {text,currency:result.currency,timezone:result.timezone,message:planned?`Попередній перегляд: аркуш «${planned.sheet}», буде записано днів ${planned.written}, пропущено ${planned.skipped}. Запис і надсилання не виконувались.`:'Попередній перегляд — без запису й надсилання'};
@@ -108,7 +110,8 @@ Deno.serve(async(req:Request)=>{
   if(x.enabled && (!chat || !bot_cipher))throw new Error('Для автоматичних звітів налаштуйте Telegram');
   const sheet_target=validateTarget(x.sheet_target);
   if(sheet_target && x.start_date>sheet_target.until)throw new Error('Початок запису пізніше кінця періоду аркуша');
-  const value={sheet_target,client_id:client.id,enabled:!!x.enabled,daily:!!x.daily,weekly:!!x.weekly,ad_account_id:account,spreadsheet_id:spreadsheet,chat_id:chat,bot_cipher,start_date:x.start_date};
+  const telegram_templates=validateTemplates(x.telegram_templates===undefined?s?.telegram_templates:x.telegram_templates);
+  const value={telegram_templates,sheet_target,client_id:client.id,enabled:!!x.enabled,daily:!!x.daily,weekly:!!x.weekly,ad_account_id:account,spreadsheet_id:spreadsheet,chat_id:chat,bot_cipher,start_date:x.start_date};
   await checked(admin.from('client_report_settings').upsert(value));return reply({settings:publicSettings(value),message:'Налаштування звітів збережено'});
  }
  if(body.action==='tabs') {
@@ -124,7 +127,8 @@ Deno.serve(async(req:Request)=>{
   return reply({message:`Meta та Google доступні. Валюта: ${result.currency}. Час кабінету: ${result.timezone}. ${s.bot_cipher?'Telegram доступний.':'Telegram не налаштований.'}`});
  }
  if(!['preview','sync','test'].includes(body.action))throw new Error('Невідома дія');
- if(!validDay(body.date) || body.date>=localDay())throw new Error('Оберіть завершений день');
- return reply(await run(admin,client,s,body.action,body.date));
+ if(body.kind!==undefined && !['daily','weekly'].includes(body.kind))throw new Error('Некоректний тип звіту');
+ if(!validDay(body.date) || (body.kind==='weekly'?body.date>localDay():body.date>=localDay()))throw new Error('Оберіть завершений день або поточну дату для тижневого звіту');
+ return reply(await run(admin,client,s,body.action,body.date,body.kind||'daily'));
  }catch(e){return reply({error:safe(e)},400);}
 });

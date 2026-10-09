@@ -114,3 +114,7 @@ npx supabase functions deploy client-reports --project-ref YOUR_PROJECT_REF
 ## Перевірки збірки
 
 Frontend: TypeScript + production build. Автотести підрахунків: дублюючі метрики, порожні дні, USD/PLN, межа тижня/року, Warsaw DST. Автотест JWT-повтору перевіряє збереження тіла PATCH та відсутність повтору при 403. Живі Meta/Google/Telegram і базова міграція потребують перевірки після підключення вашого Supabase.
+# Оновлення 0.13
+
+Якщо звітність уже працює, інструкція оновлення: `REPORTS_UPDATE_0.13.md`. У цій версії додано редактор Telegram-шаблонів і збереження оформлення Google Таблиць.
+

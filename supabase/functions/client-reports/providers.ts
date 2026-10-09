@@ -76,14 +76,13 @@ export async function writeSheet(id:string,rows:Metric[],currency:string, creden
   const plan=planTemplate(custom,rows,dates.values||[],formulas.values||[],writeFrom);
   if(plan.writes.length && !dryRun) {
    const data=plan.writes.map(w=>({range:`${title}!${w.column}${w.row}`,values:[[w.key==='currency'?currency:w.value]]}));
-   const formats=plan.writes.filter(w=>['cpl','cpm','cpc','spend','ctr'].includes(w.key)).map(w=>({repeatCell:{range:{sheetId:custom.sheet_id,startRowIndex:w.row-1,endRowIndex:w.row,startColumnIndex:columnIndex(w.column),endColumnIndex:columnIndex(w.column)+1},cell:{userEnteredFormat:{numberFormat:w.key==='ctr'?{type:'PERCENT',pattern:'0.00%'}:{type:'NUMBER',pattern:`#,##0.00 "${currency}"`}}},fields:'userEnteredFormat.numberFormat'}}));
-   // Only number formats for the cells about to be written; colors, sizes and formulas remain intact.
-   if(formats.length)await call(':batchUpdate',{requests:formats});
+   // RAW numeric values preserve all existing cell formats, including currency and percent.
    await call('/values:batchUpdate',{valueInputOption:'RAW',data});
   }
   return {written:plan.written,skipped:plan.skipped,sheet:selected.title};
  }
  let tab=details.sheets.find((s:any)=>s.properties.title===SHEET)?.properties;
+ const newTab=!tab;
  if(!tab) {const created=await call(':batchUpdate',{requests:[{addSheet:{properties:{title:SHEET,gridProperties:{rowCount:2000,columnCount:12,frozenRowCount:1}}}}]});tab=created.replies[0].addSheet.properties;}
  const range=(r:string)=>`'${SHEET}'!${r}`;
  const existing=await call('/values/'+encodeURIComponent(range('A:L'))+'?valueRenderOption=UNFORMATTED_VALUE');
@@ -96,7 +95,7 @@ export async function writeSheet(id:string,rows:Metric[],currency:string, creden
  if(next>tab.gridProperties.rowCount)await call(':batchUpdate',{requests:[{appendDimension:{sheetId:tab.sheetId,dimension:'ROWS',length:Math.max(1000,next-tab.gridProperties.rowCount)}}]});
  await call('/values:batchUpdate',{valueInputOption:'RAW',data});
  const sid=tab.sheetId;const money={type:'NUMBER',pattern:`#,##0.00 "${currency}"`};
- await call(':batchUpdate',{requests:[{repeatCell:{range:{sheetId:sid,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{backgroundColor:{red:0.89,green:0.91,blue:1},textFormat:{bold:true}}},fields:'userEnteredFormat'}},...[3,4,6,9].map(c=>({repeatCell:{range:{sheetId:sid,startRowIndex:1,startColumnIndex:c,endColumnIndex:c+1},cell:{userEnteredFormat:{numberFormat:money}},fields:'userEnteredFormat.numberFormat'}})),{repeatCell:{range:{sheetId:sid,startRowIndex:1,startColumnIndex:8,endColumnIndex:9},cell:{userEnteredFormat:{numberFormat:{type:'PERCENT',pattern:'0.00%'}}},fields:'userEnteredFormat.numberFormat'}}]});
+ if(newTab)await call(':batchUpdate',{requests:[{repeatCell:{range:{sheetId:sid,startRowIndex:0,endRowIndex:1},cell:{userEnteredFormat:{backgroundColor:{red:0.89,green:0.91,blue:1},textFormat:{bold:true}}},fields:'userEnteredFormat'}},...[3,4,6,9].map(c=>({repeatCell:{range:{sheetId:sid,startRowIndex:1,startColumnIndex:c,endColumnIndex:c+1},cell:{userEnteredFormat:{numberFormat:money}},fields:'userEnteredFormat.numberFormat'}})),{repeatCell:{range:{sheetId:sid,startRowIndex:1,startColumnIndex:8,endColumnIndex:9},cell:{userEnteredFormat:{numberFormat:{type:'PERCENT',pattern:'0.00%'}}},fields:'userEnteredFormat.numberFormat'}}]});
 }
 export async function telegram(token:string,chat:string,text?:string) {
  return json(`https://api.telegram.org/bot${token}/${text ? 'sendMessage' : 'getChat'}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(text?{chat_id:chat,text,link_preview_options:{is_disabled:true}}:{chat_id:chat})},'Telegram');

@@ -28,11 +28,26 @@ assert.equal(batch.valueInputOption,'RAW');assert.equal(batch.data.length,9);
 assert.equal(batch.data[0].range,"'Client''s month'!B3");
 assert.equal(batch.data[0].values[0][0],'=untrusted campaign');
 assert.ok(batch.data.every((c:any)=>!c.range.endsWith('2')&&!/!A/.test(c.range)));
-const formats=calls.find(c=>c.url.endsWith(':batchUpdate')&&!c.url.includes('/values:'))!.body.requests;
-assert.ok(formats.every((r:any)=>r.repeatCell.fields==='userEnteredFormat.numberFormat'&&r.repeatCell.range.startRowIndex===2));
-assert.ok(formats.some((r:any)=>r.repeatCell.cell.userEnteredFormat.numberFormat.pattern.includes('PLN')));
+assert.ok(!calls.some(c=>c.url.endsWith(':batchUpdate')&&!c.url.includes('/values:'))); // no format writes, even if Meta currency differs from the cell format
+assert.equal(batch.data.find((c:any)=>c.range.endsWith('!J3')).values[0][0],67.55); // actual amount remains numeric
 occupied=true;calls.length=0;
 assert.equal((await writeSheet('fake',[m],'PLN',sa,t,'2026-10-08'))?.skipped,1);
 assert.ok(!calls.some(c=>c.body));
 await assert.rejects(()=>writeSheet('fake',[m],'PLN',sa,{...t,sheet_id:99},'2026-10-08'),/недоступний/);
-console.log('PASS: Google request preview read-only, selected tab/id including zero, renamed/quoted title, RAW values, exact cells, currency formats only, existing formulas preserved');
+// Existing automatic tabs also keep their user-customized formats.
+let newDefault=false;
+globalThis.fetch=async(url:any,init:any)=>{
+ const u=String(url);const body=init?.body?JSON.parse(init.body):undefined;calls.push({url:u,body});
+ if(u.includes('?fields=sheets.properties'))return Response.json({sheets:newDefault?[]:[{properties:{sheetId:42,title:'Meta — щодня',gridProperties:{rowCount:100,columnCount:12}}}]});
+ if(body?.requests?.[0]?.addSheet)return Response.json({replies:[{addSheet:{properties:{sheetId:42,title:'Meta — щодня',gridProperties:{rowCount:2000,columnCount:12}}}}]});
+ if(u.includes('/values/')&&!body)return Response.json({values:newDefault?[]:[['Дата','Кампанії','Ліди Meta','CPL','CPM','Покази','CPC','Кліки на посилання','CTR','Витрати','Переписки з реклами','Валюта']]});
+ return Response.json({});
+};
+calls.length=0;await writeSheet('fake',[m],'PLN',sa);
+assert.ok(!calls.some(c=>c.body?.requests?.some((r:any)=>r.repeatCell)));
+const automatic=calls.find(c=>c.url.endsWith('/values:batchUpdate'))!.body;
+assert.equal(automatic.data[1].values[0][9],67.55);assert.equal(automatic.data[1].values[0][11],'PLN');
+newDefault=true;calls.length=0;await writeSheet('fake',[m],'PLN',sa);
+assert.ok(calls.some(c=>c.body?.requests?.some((r:any)=>r.addSheet)));
+assert.ok(calls.some(c=>c.body?.requests?.some((r:any)=>r.repeatCell))); // format initialized only once, on new tab creation
+console.log('PASS: Google preview read-only, selected tab/id zero, renamed/quoted title, RAW numeric values, no formatting mutations, occupied rows and formulas protected');

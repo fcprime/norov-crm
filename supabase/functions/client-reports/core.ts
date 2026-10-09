@@ -1,3 +1,4 @@
+import { DEFAULT_REPORT_TEMPLATE, renderTemplate } from './report-template.ts';
 export const ZONE = 'Europe/Warsaw';
 export function localDay(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: ZONE, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -34,7 +35,12 @@ export function aggregate(rows: any[], since: string, until: string, leadAction 
 export function totals(rows: Metric[]) {
  return rows.reduce((s,r)=>({spend:s.spend+r.spend,leads:s.leads+r.leads,messages:s.messages+r.messages,clicks:s.clicks+r.clicks,impressions:s.impressions+r.impressions}),{spend:0,leads:0,messages:0,clicks:0,impressions:0});
 }
-export function reportText(name:string, since:string, until:string, currency:string, rows:Metric[], test=false) {
+export function reportText(name:string, since:string, until:string, currency:string, rows:Metric[], test=false, template=DEFAULT_REPORT_TEMPLATE) {
  const s=totals(rows); const money=(n:number)=>new Intl.NumberFormat('uk-UA',{style:'currency',currency}).format(n);
- return `${test?'🧪 ТЕСТ\n':''}📊 ${name}\n${since === until ? since : `${since} — ${until}`}\n\nЛіди Meta: ${s.leads}\nПереписки з реклами: ${s.messages}\nВитрати: ${money(s.spend)}\nЦіна ліда: ${s.leads ? money(s.spend/s.leads) : '—'}\nПокази: ${s.impressions}\nКліки на посилання: ${s.clicks}\nCPC: ${s.clicks ? money(s.spend/s.clicks) : '—'}\nCPM: ${s.impressions ? money(s.spend/s.impressions*1000) : '—'}\nCTR: ${s.impressions ? (s.clicks/s.impressions*100).toFixed(2) : '0.00'}%`;
+ return renderTemplate(template,{name,period:since===until?since:`${since} — ${until}`,date_from:since,date_to:until,
+  currency,leads:String(s.leads),messages:String(s.messages),spend:money(s.spend),
+  cpl:s.leads?money(s.spend/s.leads):'—',impressions:String(s.impressions),clicks:String(s.clicks),
+  cpc:s.clicks?money(s.spend/s.clicks):'—',cpm:s.impressions?money(s.spend/s.impressions*1000):'—',
+  ctr:`${s.impressions?(s.clicks/s.impressions*100).toFixed(2):'0.00'}%`,
+ },test);
 }
