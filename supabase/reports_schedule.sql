@@ -3,7 +3,7 @@
 select cron.unschedule(jobid) from cron.job where jobname='norov-client-reports';
 select cron.schedule(
  'norov-client-reports',
- '*/5 * * * *',
+ '* * * * *',
  $$select net.http_post(
    url := (select decrypted_secret from vault.decrypted_secrets where name='norov_reports_url' limit 1),
    headers := jsonb_build_object('Content-Type','application/json','x-reports-cron',
