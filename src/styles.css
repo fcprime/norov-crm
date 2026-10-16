@@ -49,3 +49,39 @@
 
 .report-panel select{min-width:0;width:100%;padding:11px;border:1px solid #e0e4ee;border-radius:9px;background:white;color:#162238;font:inherit}.report-fields+.report-buttons{margin-top:12px;margin-bottom:12px}
 .telegram-editor{margin:20px 0;padding:18px 0;border-top:1px solid #e0e4ee;border-bottom:1px solid #e0e4ee;min-width:0}.telegram-editor h4{margin:0 0 8px;font-size:16px}.telegram-tabs{margin:12px 0}.telegram-template-label{display:flex;flex-direction:column;gap:7px}.report-panel .telegram-template-label textarea{box-sizing:border-box;min-width:0;width:100%;resize:vertical;padding:12px;border:1px solid #e0e4ee;border-radius:9px;background:#fff;color:#162238;font:inherit;font-size:14px;line-height:1.6}.telegram-editor-actions{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:8px 0 14px}.telegram-editor-actions small{color:#65718b}.telegram-editor-actions button{padding:8px 11px;border-radius:9px;font-size:12px}.telegram-variables summary{cursor:pointer;font-weight:600;font-size:13px}.telegram-variables code{font-size:11px}.report-test .report-fields{margin-bottom:12px}
+
+
+/* Reports UI refresh */
+.form-grid > .report-panel.full{grid-column:1/-1;width:100%}
+.report-panel{width:100%;overflow:hidden}
+.report-section{padding:18px 0;border-top:1px solid #e0e4ee}
+.report-section:first-of-type{border-top:0;padding-top:4px}
+.report-subheading{display:flex;justify-content:space-between;gap:16px;margin-bottom:12px}
+.report-subheading h4{margin:0 0 5px;font-size:15px;color:#1f2937}
+.report-subheading h4 span{font-size:11px;font-weight:700;color:#64748b;background:#eef2f7;border-radius:999px;padding:3px 7px;margin-left:5px}
+.report-subheading p{margin:0;color:#65718b}
+.report-fields{grid-template-columns:repeat(2,minmax(0,1fr));align-items:end}
+.report-fields-main{grid-template-columns:1fr 1.4fr .8fr}
+.report-columns-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.report-inline-actions{margin:12px 0}
+.report-optional{background:#fbfcff;border:1px solid #e7eaf3;border-radius:14px;padding:16px;margin:14px 0}
+.report-schedule{margin-top:4px}
+.report-toggle-main{display:flex;align-items:center;gap:10px;padding:14px;border:1px solid #dfe4ee;border-radius:12px;background:#fff;margin-bottom:12px;cursor:pointer}
+.report-toggle-main input,.report-toggle-row input{width:17px;height:17px;accent-color:#7362ff}
+.report-toggle-main span,.report-toggle-row span{display:flex;flex-direction:column;gap:2px}
+.report-toggle-main small,.report-toggle-row small{font-size:11px;color:#7a8599;font-weight:500}
+.report-schedule-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.report-schedule-card{display:grid;grid-template-columns:minmax(0,1fr) 150px;gap:14px;align-items:end;border:1px solid #e0e4ee;background:#fff;border-radius:12px;padding:14px}
+.report-toggle-row{display:flex;align-items:center;gap:9px;cursor:pointer}
+.report-time-field{display:flex!important;flex-direction:column;gap:6px;font-size:12px;font-weight:650;color:#475467}
+.report-time-field input:disabled{background:#f2f4f7;color:#98a2b3}
+.report-test{margin-top:16px}
+.report-test .report-fields{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:900px){
+ .report-fields-main,.report-columns-grid,.report-schedule-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .report-schedule-card{grid-template-columns:1fr}
+}
+@media(max-width:650px){
+ .report-fields,.report-fields-main,.report-columns-grid,.report-schedule-grid,.report-test .report-fields{grid-template-columns:1fr}
+ .report-optional{padding:13px}
+}
