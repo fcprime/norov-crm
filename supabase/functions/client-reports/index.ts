@@ -15,6 +15,8 @@ async function credentials(db:any) {
 }
 async function run(db:any,client:any,s:any,action:string,date:string,kind='daily') {
  const p=period(kind,date);
+ const telegramConfigured=!!s.bot_cipher && !!s.chat_id;
+ if(action==='test' && !telegramConfigured)throw new Error('Налаштуйте Telegram для тестового надсилання');
  if(action!=='preview' && client.status!=='active')throw new Error('Клієнт на паузі або в архіві');
  const changed=await checked(db.from('client_report_settings').update({locked_until:new Date(Date.now()+600000).toISOString()}).eq('client_id',client.id).or(`locked_until.is.null,locked_until.lt.${new Date().toISOString()}`).select('client_id'));
  if(!changed.length)throw new Error('Звіт уже виконується. Спробуйте пізніше.');
@@ -40,8 +42,7 @@ async function run(db:any,client:any,s:any,action:string,date:string,kind='daily
    try {
     const latest=await checked(db.from('clients').select('status').eq('id',client.id).single());
     if(latest.status!=='active')throw new Error('Надсилання зупинено: клієнт не активний');
-    if(!s.bot_cipher || !s.chat_id)throw new Error('Налаштуйте Telegram');
-    await telegram(await crypt(s.bot_cipher,true),s.chat_id,text);
+    if(telegramConfigured)await telegram(await crypt(s.bot_cipher,true),s.chat_id,text);
     await checked(db.from('client_report_delivery').update({state:'sent'}).eq('client_id',client.id).eq('delivery_key',key));
    } catch(e) {
     await db.from('client_report_delivery').update({state:'uncertain'}).eq('client_id',client.id).eq('delivery_key',key);
@@ -49,7 +50,8 @@ async function run(db:any,client:any,s:any,action:string,date:string,kind='daily
    }
  }
  await checked(db.from('client_report_settings').update({last_success:new Date().toISOString(),last_error:null}).eq('client_id',client.id));
- return {text,message:sheetMessage+(action==='sync'?'':' Звіт надіслано в Telegram.')};
+ const telegramMessage=action==='test'?' Звіт надіслано в Telegram.':action==='scheduled'?(telegramConfigured?' Звіт надіслано в Telegram.':' Telegram не налаштований — виконано лише запис у Google.') : '';
+ return {text,message:sheetMessage+telegramMessage};
  }catch(e){await db.from('client_report_settings').update({last_error:safe(e)}).eq('client_id',client.id);throw e;}
  finally {await db.from('client_report_settings').update({locked_until:null}).eq('client_id',client.id);}
 }
@@ -68,8 +70,10 @@ Deno.serve(async(req:Request)=>{
   await Promise.all(settings.map(async(s:any)=>{
    const c=s.clients; const start=[s.start_date,c.reports_active_since || s.start_date].sort().at(-1)!;
    const jobs:any[]=[];const yesterday=shift(today,-1);
-   if(s.daily && time>='08:10' && yesterday>=start)jobs.push({kind:'daily',date:yesterday});
-   if(s.weekly && time>='09:00' && new Date(today+'T12:00:00Z').getUTCDay()===1 && period('weekly',today).since>=start)jobs.push({kind:'weekly',date:today});
+   const dailyTime=String(s.daily_time || '08:10').slice(0,5);
+   const weeklyTime=String(s.weekly_time || '09:00').slice(0,5);
+   if(s.daily && time>=dailyTime && yesterday>=start)jobs.push({kind:'daily',date:yesterday});
+   if(s.weekly && time>=weeklyTime && new Date(today+'T12:00:00Z').getUTCDay()===1 && period('weekly',today).since>=start)jobs.push({kind:'weekly',date:today});
    for(const j of jobs)try{
     const p=period(j.kind,j.date);const key=`${j.kind}:${p.since}:${p.until}`;
     const exists=await checked(admin.from('client_report_delivery').select('state').eq('client_id',c.id).eq('delivery_key',key).maybeSingle());
@@ -107,11 +111,14 @@ Deno.serve(async(req:Request)=>{
   const chat=String(x.chat_id || '').trim();if(chat && !/^-?\d+$/.test(chat))throw new Error('Chat ID має бути числом');
   const bot=String(x.bot_token || '').trim();if(bot && !/^\d+:[A-Za-z0-9_-]{20,}$/.test(bot))throw new Error('Некоректний токен бота');
   const bot_cipher=bot ? await crypt(bot) : s?.bot_cipher || null;
-  if(x.enabled && (!chat || !bot_cipher))throw new Error('Для автоматичних звітів налаштуйте Telegram');
+  const daily_time=String(x.daily_time || '08:10').slice(0,5);
+  const weekly_time=String(x.weekly_time || '09:00').slice(0,5);
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(daily_time))throw new Error('Вкажіть коректний час щоденного звіту');
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(weekly_time))throw new Error('Вкажіть коректний час щотижневого звіту');
   const sheet_target=validateTarget(x.sheet_target);
   if(sheet_target && x.start_date>sheet_target.until)throw new Error('Початок запису пізніше кінця періоду аркуша');
   const telegram_templates=validateTemplates(x.telegram_templates===undefined?s?.telegram_templates:x.telegram_templates);
-  const value={telegram_templates,sheet_target,client_id:client.id,enabled:!!x.enabled,daily:!!x.daily,weekly:!!x.weekly,ad_account_id:account,spreadsheet_id:spreadsheet,chat_id:chat,bot_cipher,start_date:x.start_date};
+  const value={telegram_templates,sheet_target,client_id:client.id,enabled:!!x.enabled,daily:!!x.daily,weekly:!!x.weekly,daily_time,weekly_time,ad_account_id:account,spreadsheet_id:spreadsheet,chat_id:chat,bot_cipher,start_date:x.start_date};
   await checked(admin.from('client_report_settings').upsert(value));return reply({settings:publicSettings(value),message:'Налаштування звітів збережено'});
  }
  if(body.action==='tabs') {
@@ -124,7 +131,7 @@ Deno.serve(async(req:Request)=>{
  if(body.action==='check') {
   const creds=await credentials(admin);const result=await meta(s.ad_account_id,shift(localDay(),-1),shift(localDay(),-1),creds.meta);await sheetMeta(s.spreadsheet_id,creds.google);
   if(s.bot_cipher && s.chat_id)await telegram(await crypt(s.bot_cipher,true),s.chat_id);
-  return reply({message:`Meta та Google доступні. Валюта: ${result.currency}. Час кабінету: ${result.timezone}. ${s.bot_cipher?'Telegram доступний.':'Telegram не налаштований.'}`});
+  return reply({message:`Meta та Google доступні. Валюта: ${result.currency}. Час кабінету: ${result.timezone}. ${s.bot_cipher && s.chat_id?'Telegram доступний.':'Telegram не налаштований — Google працюватиме без нього.'}`});
  }
  if(!['preview','sync','test'].includes(body.action))throw new Error('Невідома дія');
  if(body.kind!==undefined && !['daily','weekly'].includes(body.kind))throw new Error('Некоректний тип звіту');
