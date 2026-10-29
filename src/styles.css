@@ -139,3 +139,12 @@
 .completed-tasks small{color:#98a2b3}
 @media(max-width:1100px){.work-board{grid-template-columns:repeat(3,300px)}}
 @media(max-width:760px){.work-board{grid-template-columns:repeat(3,280px)}.client-task-list,.task-form-row{grid-template-columns:1fr}}
+
+.work-board-active-only{display:block;overflow:visible}
+.work-column-wide{min-height:0}
+.work-active-grid{display:grid;grid-template-columns:repeat(3,minmax(280px,1fr));gap:12px}
+.client-task-line{grid-template-columns:28px minmax(0,1fr) 32px}
+.task-quick-delete{border:0;border-left:1px solid #eef0f4;background:transparent;color:#b0b8c5;display:grid;place-items:center;cursor:pointer}
+.task-quick-delete:hover{background:#fff1f2;color:#dc2626}
+@media(max-width:1200px){.work-active-grid{grid-template-columns:repeat(2,minmax(280px,1fr))}}
+@media(max-width:760px){.work-active-grid{grid-template-columns:1fr}}
