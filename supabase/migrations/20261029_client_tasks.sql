@@ -43,3 +43,15 @@ for delete to authenticated using ((select auth.uid()) = owner_id);
 
 create index if not exists tasks_owner_client_idx on public.tasks(owner_id, client_id);
 create index if not exists tasks_owner_due_idx on public.tasks(owner_id, due_date) where status <> 'completed';
+
+create index if not exists tasks_client_idx on public.tasks(client_id);
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname='supabase_realtime' and schemaname='public' and tablename='tasks'
+  ) then
+    alter publication supabase_realtime add table public.tasks;
+  end if;
+end $$;
